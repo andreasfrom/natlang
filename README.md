@@ -7,7 +7,7 @@ This is still under development, so the parser is quite rough, the error message
 The code below defines addition and multiplication of natural numbers through recursion and then defines fibonacci.
 It evaluates to the natural number equivalent of 55.
 
-```
+```ruby
 add(a, Z) = a
 add(a, Sb) = S add(a, b)
 
