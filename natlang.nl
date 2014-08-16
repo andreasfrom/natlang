@@ -19,5 +19,5 @@ fib(SSn) = add(fib(S n), fib(n))
   
 ten = mul(SSZ, SSSSSZ)
 
-main() = exp(SSZ, SSSZ)
+main = exp(SSZ, SSSZ)
 
