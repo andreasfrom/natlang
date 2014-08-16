@@ -1,9 +1,9 @@
 module Main where
 
 -- TODO: Convert errors to Either and check a whole lot more conditions
---       Do I need a monad transformer for this?
 -- TODO: Look over parser
 -- TODO: Move at least parser to own module
+-- TODO: Some form of boolean expressions?
 
 import           Control.Applicative
 import           Control.Monad.Reader
@@ -73,13 +73,11 @@ decNat (S n) = n
 eval :: Expr -> Reader Environment Nat
 eval (Number x) = return x
 eval (Inc x) = liftM S (eval x)
-
 eval (Constant n) = do
   env <- ask
   case lookupEnv n env of
     Just (ConstDef _ n') -> eval n'
     _ -> error $ "No constant found called: " ++ n ++ " in environment: " ++ show env
-
 eval (Call f args) = do
   env <- ask
   let args' = map ((`runReader` env) . eval) args
@@ -87,7 +85,7 @@ eval (Call f args) = do
         (FuncDef _ is) -> is
         _ -> error "no function"
       (params, f') = fromMaybe
-                     (error $ "no suitable instance found: " ++ show insts)
+                     (error $ "No suitable instance found: " ++ show insts ++ "\nFor args: " ++ show args')
                      (findInst insts args')
       env' = zipParams params args'
   return $ runReader (eval f') (env' <> env)
@@ -165,14 +163,17 @@ functionDefinition = singleton <$> var
 constantDefinition :: Parser Definition
 constantDefinition = ConstDef <$> var <* whiteSpace <* symbolic '=' <* whiteSpace <*> expr <* whiteSpace
 
+comment :: Parser ()
+comment = string "--" *> many (noneOf "\n") *> whiteSpace
+
 program :: Parser Program
-program = some (try functionDefinition <|> constantDefinition)
+program = some (optional comment *> (try functionDefinition <|> constantDefinition))
 
 -- Runnning
 
-parse :: IO Program
-parse = do
-   result <- parseFromFile program "toylang.tl"
+parse :: FilePath -> IO Program
+parse file = do
+   result <- parseFromFile program file
    case result of
      Just res -> return res
      Nothing -> error "couldn't parse"
@@ -182,12 +183,9 @@ run defs = runReader prog mempty
   where prog = do
           let env = foldl (flip insertEnv) mempty defs
           case lookupEnv "main" env of
-            Just (FuncDef _ [(_,m)]) -> local (env `mappend`) (eval m)
+            Just (FuncDef _ [(_,m)]) -> local (env <>) (eval m)
+            Just (ConstDef _ m) -> local (env <>) (eval m)
             _ -> error "no (unique) main function"
 
 main :: IO ()
-main = do
-   result <- parseFromFile program "natlang.nl"
-   case result of
-     Just prog -> let s = run prog in print (natToInt s, s)
-     Nothing -> return ()
+main = parse "natlang.nl" >>= \prog -> let s = run prog in print (natToInt s, s)
