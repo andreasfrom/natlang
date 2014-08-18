@@ -3,7 +3,6 @@ module Main where
 -- TODO: Convert errors to Either and check a whole lot more conditions
 -- TODO: Look over parser
 -- TODO: Move at least parser to own module
--- TODO: Some form of boolean expressions?
 
 import           Control.Applicative
 import           Control.Monad.Reader
@@ -28,7 +27,7 @@ data Expr = Number Nat
           | Constant Name
           | Call Name [Expr]
           | Inc Expr
-          deriving Show
+          deriving (Show, Eq)
 
 type Instance = ([Param], Expr)
 
@@ -85,15 +84,22 @@ eval (Call f args) = do
                    (listToMaybe $ mapMaybe (\i -> matchesInst i args' mempty) insts)
   return $ runReader (eval f') (env' <> env)
 
+-- For the "f(a,a) implies a=a"-feature, there's a little bit too much implicit knowledge about the env being empty and only containing Numbers, but for now it works
 matchesInst :: Instance -> [Nat] -> Environment -> Maybe (Expr, Environment)
 matchesInst (_,f) [] env = Just (f, env)
 matchesInst (LiteralParam p : pars, f) (a:as) env
   | p == a = matchesInst (pars, f) as env
   | otherwise = Nothing
 matchesInst (FreeParam p : pars, f) (a:as) env =
-  matchesInst (pars,f) as (insertEnv (ConstDef p (Number a)) env)
+  case lookupEnv p env of
+    Just (ConstDef _ (Number e)) -> if e == a then continue else Nothing
+    Nothing -> continue
+  where continue = matchesInst (pars,f) as (insertEnv (ConstDef p (Number a)) env)
 matchesInst (PatternParam (Binding p) : pars, f) (a:as) env =
-  matchesInst (pars,f) as (insertEnv (ConstDef p (Number a)) env)
+  case lookupEnv p env of
+    Just (ConstDef _ (Number e)) -> if e == a then continue else Nothing
+    Nothing -> continue
+  where continue = matchesInst (pars,f) as (insertEnv (ConstDef p (Number a)) env)
 matchesInst (PatternParam (Succ _) : _, _) (Z:_) _ = Nothing
 matchesInst (PatternParam (Succ s) : pars, f) (S a:as) env =
   matchesInst (PatternParam s : pars, f) (a:as) env

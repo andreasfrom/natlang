@@ -2,18 +2,12 @@ sub(a, Z) = a
 sub(Z, _) = Z
 sub(Sa, Sb) = sub(a,b)
 
--- Convention: Z is false, SZ is true
-equals(Z, Z) = SZ
-equals(_, Z) = Z
-equals(Z, _) = Z
-equals(Sa, Sb) = equals(a,b)
+modi(a, a, _) = Z
+modi(Z, _, orig) = orig
+modi(_, SZ, _) = Z
+modi(a, b, _) = modi(sub(a,b), b, a)
 
-modi(_, _, _, SZ) = Z
-modi(Z, _, orig, _) = orig
-modi(_, SZ, _, _) = Z
-modi(a, b, _, _) = modi(sub(a,b), b, a, equals(sub(a,b), b))
-
-mod(a, b) = modi(a,b,a,equals(a,b))
+mod(a, b) = modi(a,b,a)
 
 primei(_, SZ, _) = SZ
 primei(_, _, Z) = Z
@@ -24,5 +18,5 @@ prime(Sa) = primei(S a, a, mod(S a, a))
 
 eleven = SSSSSSSSSSSZ
 
--- returns SZ, the convention for true
+-- returns SZ for true
 main = prime(eleven)
