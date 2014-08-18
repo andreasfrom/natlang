@@ -18,7 +18,7 @@ type Name = String
 data Pattern = Binding Name | Succ Pattern
              deriving (Show, Eq)
 
-data Param = FreeParam Name | LiteralParam Nat | PatternParam Pattern
+data Param = FreeParam Name | LiteralParam Nat | PatternParam Pattern | WildcardParam
            deriving (Show, Eq)
 
 data Nat = Z | S Nat
@@ -97,6 +97,7 @@ matchesInst (PatternParam (Binding p) : pars, f) (a:as) env =
 matchesInst (PatternParam (Succ _) : _, _) (Z:_) _ = Nothing
 matchesInst (PatternParam (Succ s) : pars, f) (S a:as) env =
   matchesInst (PatternParam s : pars, f) (a:as) env
+matchesInst (WildcardParam : pars, f) (_:as) env = matchesInst (pars, f) as env
 
 -- Parser
 
@@ -131,7 +132,8 @@ pattern = convert <$> many (char 'S' <* whiteSpace) <*> var
 functionDefinition :: Parser Definition
 functionDefinition = singleton <$> var
                      <*> parens (sepBy (FreeParam <$> var <|> try (LiteralParam <$> nat)
-                                       <|> PatternParam <$> pattern) comma)
+                                       <|> PatternParam <$> pattern
+                                       <|> WildcardParam <$ char '_') comma)
                      <* symbolic '=' <* whiteSpace
                      <*> expr <* whiteSpace
   where singleton name param ex = FuncDef name [(param, ex)]
