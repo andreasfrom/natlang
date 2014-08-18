@@ -17,13 +17,10 @@ type Name = String
 data Pattern = Binding Name | Succ Pattern
              deriving (Show, Eq)
 
-data Param = FreeParam Name | LiteralParam Nat | PatternParam Pattern | WildcardParam
+data Param = FreeParam Name | LiteralParam Int | PatternParam Pattern | WildcardParam
            deriving (Show, Eq)
 
-data Nat = Z | S Nat
-         deriving (Show, Eq)
-
-data Expr = Number Nat
+data Expr = Number Int
           | Constant Name
           | Call Name [Expr]
           | Inc Expr
@@ -60,14 +57,9 @@ insertEnv def@(FuncDef n _) env = singletonEnv n def <> env
 
 type Program = [Definition]
 
-natToInt :: Nat -> Integer
-natToInt = go 0
-  where go acc Z = acc
-        go acc (S n) = go (acc+1) n
-
-eval :: Expr -> Reader Environment Nat
+eval :: Expr -> Reader Environment Int
 eval (Number x) = return x
-eval (Inc x) = liftM S (eval x)
+eval (Inc x) = liftM (1+) (eval x)
 eval (Constant n) = do
   env <- ask
   case lookupEnv n env of
@@ -85,7 +77,7 @@ eval (Call f args) = do
   return $ runReader (eval f') (env' <> env)
 
 -- For the "f(a,a) implies a=a"-feature, there's a little bit too much implicit knowledge about the env being empty and only containing Numbers, but for now it works
-matchesInst :: Instance -> [Nat] -> Environment -> Maybe (Expr, Environment)
+matchesInst :: Instance -> [Int] -> Environment -> Maybe (Expr, Environment)
 matchesInst (_,f) [] env = Just (f, env)
 matchesInst (LiteralParam p : pars, f) (a:as) env
   | p == a = matchesInst (pars, f) as env
@@ -100,9 +92,9 @@ matchesInst (PatternParam (Binding p) : pars, f) (a:as) env =
     Just (ConstDef _ (Number e)) -> if e == a then continue else Nothing
     Nothing -> continue
   where continue = matchesInst (pars,f) as (insertEnv (ConstDef p (Number a)) env)
-matchesInst (PatternParam (Succ _) : _, _) (Z:_) _ = Nothing
-matchesInst (PatternParam (Succ s) : pars, f) (S a:as) env =
-  matchesInst (PatternParam s : pars, f) (a:as) env
+matchesInst (PatternParam (Succ _) : _, _) (0:_) _ = Nothing
+matchesInst (PatternParam (Succ s) : pars, f) (a:as) env =
+  matchesInst (PatternParam s : pars, f) (a-1:as) env
 matchesInst (WildcardParam : pars, f) (_:as) env = matchesInst (pars, f) as env
 
 -- Parser
@@ -110,10 +102,10 @@ matchesInst (WildcardParam : pars, f) (_:as) env = matchesInst (pars, f) as env
 expr :: Parser Expr
 expr = try number <|> try func <|> constant <|> inc <|> parens expr
 
-nat :: Parser Nat
+nat :: Parser Int
 nat = convert <$> (many (char 'S') <* char 'Z')
-  where convert [] = Z
-        convert (_:xs) = S (convert xs)
+  where convert [] = 0
+        convert (_:xs) = 1 + convert xs
 
 number :: Parser Expr
 number = Number <$> nat
@@ -162,7 +154,7 @@ parse file = do
      Just res -> return res
      Nothing -> error "couldn't parse"
 
-run :: Program -> Nat
+run :: Program -> Int
 run defs = runReader prog mempty
   where prog = do
           let env = foldl (flip insertEnv) mempty defs
@@ -172,4 +164,4 @@ run defs = runReader prog mempty
             _ -> error "no (unique) main function"
 
 main :: IO ()
-main = parse "natlang.nl" >>= \prog -> let s = run prog in print (natToInt s, s)
+main = parse "natlang.nl" >>= \prog -> let s = run prog in print s
