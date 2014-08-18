@@ -66,10 +66,6 @@ natToInt = go 0
   where go acc Z = acc
         go acc (S n) = go (acc+1) n
 
-decNat :: Nat -> Nat
-decNat Z = Z
-decNat (S n) = n
-
 eval :: Expr -> Reader Environment Nat
 eval (Number x) = return x
 eval (Inc x) = liftM S (eval x)
@@ -84,43 +80,23 @@ eval (Call f args) = do
       insts = case fromMaybe (error $ "unknown function: " ++ show f) (lookupEnv f env) of
         (FuncDef _ is) -> is
         _ -> error "no function"
-      (params, f') = fromMaybe
-                     (error $ "No suitable instance found: " ++ show insts ++ "\nFor args: " ++ show args')
-                     (findInst insts args')
-      env' = zipParams params args'
+      (f', env') = fromMaybe (error $ "No suitable instance found: " ++ show insts
+                              ++ "\nFor args: " ++ show args')
+                   (listToMaybe $ mapMaybe (\i -> matchesInst i args' mempty) insts)
   return $ runReader (eval f') (env' <> env)
 
-zipParams :: [Param] -> [Nat] -> Environment
-zipParams [] _ = mempty
-zipParams _ [] = mempty
-zipParams (LiteralParam _:pars) (_:nats) = zipParams pars nats
-zipParams (FreeParam p : pars) (n:nats) =
-  ConstDef p (Number n) `insertEnv` zipParams pars nats
-zipParams (PatternParam (Binding p) : pars) (n:nats) =
-  ConstDef p (Number n) `insertEnv` zipParams pars nats
-zipParams (PatternParam (Succ p) : pars) (n:nats) =
-  zipParams (PatternParam p : pars) (decNat n:nats)
-
-findInst :: [Instance] -> [Nat] -> Maybe Instance
-findInst insts arguments =
-  listToMaybe $ mapMaybe (`matchesInst` arguments) insts
-
-matchesInst :: Instance -> [Nat] -> Maybe Instance
-matchesInst (params, ex) args =
-  case go (params, ex) args of
-    Just f -> Just (params, f)
-    Nothing -> Nothing
-  where go :: Instance -> [Nat] -> Maybe Expr
-        go (_,f') [] = Just f'
-        go (LiteralParam p : pars, f') (a:as)
-          | p == a = go (pars, f') as
-          | otherwise = Nothing
-        go (FreeParam _ : pars, f') (_:as) = go (pars,f') as
-        go (PatternParam (Binding _) : pars, f') (_:as) = go (pars,f') as
-        go (PatternParam (Succ s) : pars, f') (a:as)
-          | a /= Z = go (PatternParam s : pars, f') (decNat a:as)
-          | otherwise = Nothing
-        go _ _ = Nothing
+matchesInst :: Instance -> [Nat] -> Environment -> Maybe (Expr, Environment)
+matchesInst (_,f) [] env = Just (f, env)
+matchesInst (LiteralParam p : pars, f) (a:as) env
+  | p == a = matchesInst (pars, f) as env
+  | otherwise = Nothing
+matchesInst (FreeParam p : pars, f) (a:as) env =
+  matchesInst (pars,f) as (insertEnv (ConstDef p (Number a)) env)
+matchesInst (PatternParam (Binding p) : pars, f) (a:as) env =
+  matchesInst (pars,f) as (insertEnv (ConstDef p (Number a)) env)
+matchesInst (PatternParam (Succ _) : _, _) (Z:_) _ = Nothing
+matchesInst (PatternParam (Succ s) : pars, f) (S a:as) env =
+  matchesInst (PatternParam s : pars, f) (a:as) env
 
 -- Parser
 
