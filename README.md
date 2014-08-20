@@ -5,7 +5,6 @@ This is still under development, so the parser is quite rough, the error message
 
 # Example
 The code below defines addition and multiplication of natural numbers through recursion and then defines fibonacci.
-It evaluates to my natural number representation of 55.
 
 ```haskell
 add(a, 0) = a
@@ -21,6 +20,7 @@ fib(SSn) = add(fib(S(n)), fib(n))
 
 ten = mul(SS0, SSSSS0)
 
+-- Evaluates to 55
 main = fib(ten)
 ```
 
