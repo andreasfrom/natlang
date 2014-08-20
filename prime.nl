@@ -4,7 +4,7 @@ sub(Sa, Sb) = sub(a,b)
 
 modi(a, a, _) = 0
 modi(0, _, orig) = orig
-modi(_, SZ, _) = Z
+modi(_, S0, _) = 0
 modi(a, b, _) = modi(sub(a,b), b, a)
 
 mod(a, b) = modi(a,b,a)
