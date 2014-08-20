@@ -2,13 +2,16 @@ module Parser (parse) where
 
 import           AST
 import           Control.Applicative
+import qualified Text.Parser.Token.Highlight as H
 import           Text.Trifecta
 
 expr :: Parser Expr
-expr = try number <|> try func <|> constant <|> inc <|> parens expr
+expr = optional comment
+       *> (try number <|> try call <|> constant <|> inc <|> parens expr)
+       <* optional comment
 
 nat :: Parser Int
-nat = convert <$> (many (char 'S') <* char 'Z')
+nat = convert <$> (highlight H.Number (many (char 'S') <* char '0')) <* whiteSpace
   where convert [] = 0
         convert (_:xs) = 1 + convert xs
 
@@ -16,39 +19,48 @@ number :: Parser Expr
 number = Number <$> nat
 
 var :: Parser Name
-var = some lower
+var = highlight H.Identifier ((:) <$> lower <*> many alphaNum) <* whiteSpace
 
 constant :: Parser Expr
 constant = Constant <$> var
 
-func :: Parser Expr
-func = Call <$> var <*> parens (sepBy expr comma)
+call :: Parser Expr
+call = Call <$> var <*> parens (sepBy expr comma)
 
 inc :: Parser Expr
-inc = Inc <$> (char 'S' *> some (char ' ') *> expr)
+inc = Inc <$> highlight H.ReservedIdentifier (char 'S' *> parens expr)
 
-pattern :: Parser Pattern
-pattern = convert <$> many (char 'S' <* whiteSpace) <*> var
+patternParam :: Parser Pattern
+patternParam = convert <$> many (char 'S') <*> var
   where convert [] n = Binding n
         convert (_:rest) n = Succ (convert rest n)
 
 functionDefinition :: Parser Definition
-functionDefinition = singleton <$> var
-                     <*> parens (sepBy (FreeParam <$> var <|> try (LiteralParam <$> nat)
-                                       <|> PatternParam <$> pattern
-                                       <|> WildcardParam <$ char '_') comma)
-                     <* symbolic '=' <* whiteSpace
-                     <*> expr <* whiteSpace
-  where singleton name param ex = FuncDef name [(param, ex)]
+functionDefinition = convert <$> var <*>
+                     parens (sepBy (FreeParam <$> var
+                                    <|> try (LiteralParam <$> nat)
+                                    <|> try (PatternParam <$> patternParam)
+                                    <|> WildcardParam <$ char '_')
+                             comma)
+  <* symbolic '=' <*> expr <* whiteSpace
+  where convert name param ex = FuncDef name [(param, ex)]
 
 constantDefinition :: Parser Definition
-constantDefinition = ConstDef <$> var <* whiteSpace <* symbolic '=' <* whiteSpace <*> expr <* whiteSpace
+constantDefinition = ConstDef <$> var <* symbolic '=' <*> expr <* whiteSpace
+
+lineComment :: Parser ()
+lineComment = highlight H.Comment (string "--" *> skipMany (noneOf "\n")) *> whiteSpace
+
+inlineComment :: Parser ()
+inlineComment = highlight H.Comment (string "{-" *> manyTill anyChar (try (string "-}"))) *> whiteSpace
 
 comment :: Parser ()
-comment = string "--" *> many (noneOf "\n") *> whiteSpace
+comment = some (lineComment <|> inlineComment) *> whiteSpace
 
 program :: Parser Program
-program = some (optional comment *> (try functionDefinition <|> constantDefinition))
+program = some (optional comment
+                *> (try functionDefinition <|> constantDefinition)
+                <* optional comment) <* eof
 
 parse :: FilePath -> IO (Maybe Program)
 parse = parseFromFile program
