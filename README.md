@@ -8,18 +8,18 @@ The code below defines addition and multiplication of natural numbers through re
 It evaluates to my natural number representation of 55.
 
 ```haskell
-add(a, Z) = a
-add(a, Sb) = S add(a, b)
+add(a, 0) = a
+add(a, Sb) = S(add(a, b))
 
-mul(_, Z) = Z
-mul(a, SZ) = a
+mul(_, 0) = 0
+mul(a, S0) = a
 mul(a, Sb) = add(a, mul(a, b))
   
-fib(Z) = Z
-fib(SZ) = SZ
-fib(SSn) = add(fib(S n), fib(n))
+fib(0) = 0
+fib(S0) = S0
+fib(SSn) = add(fib(S(n)), fib(n))
 
-ten = mul(SSZ, SSSSSZ)
+ten = mul(SS0, SSSSS0)
 
 main = fib(ten)
 ```
