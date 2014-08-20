@@ -1,7 +1,6 @@
 module Main where
 
 -- TODO: Convert errors to Either and check a whole lot more conditions
--- TODO: Look over parser
 
 import           AST
 import           Control.Monad.Reader
