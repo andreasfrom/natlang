@@ -16,7 +16,7 @@ primei(a, Sn, _) = primei(a, n, mod(a,n))
 prime(S0) = 0
 prime(Sa) = primei(S(a), a, mod(S(a), a))
 
-eleven = SSSSSSSSSSSZ
+eleven = SSSSSSSSSSS0
 
 -- returns S0 for true
 main = prime(eleven)
