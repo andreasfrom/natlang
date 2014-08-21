@@ -6,61 +6,70 @@ import qualified Text.Parser.Token.Highlight as H
 import           Text.Trifecta
 
 expr :: Parser Expr
-expr = optional comment
-       *> (try number <|> try call <|> constant <|> inc <|> parens expr)
-       <* optional comment
+expr = comment *> (call <|> constant <|> zero <|> incOrPos) <* comment
 
 nat :: Parser Int
-nat = convert <$> (highlight H.Number (many (char 'S') <* char '0')) <* whiteSpace
-  where convert [] = 0
-        convert (_:xs) = 1 + convert xs
+nat = highlight H.Number (length <$> many (char 'S') <* char '0'
+                          <?> "literal natural number e.g. 0 or SS0") <* whiteSpace
 
-number :: Parser Expr
-number = Number <$> nat
+zero :: Parser Expr
+zero = highlight H.Number (char '0') *> pure (Number 0) <* whiteSpace
+
+incOrPos :: Parser Expr
+incOrPos = do
+  char 'S'
+  arg <- optional (parens expr)
+  case arg of
+   Just arg' -> return $ Inc arg'
+   Nothing -> Number <$> (1+) <$> nat
 
 var :: Parser Name
-var = highlight H.Identifier ((:) <$> lower <*> many alphaNum) <* whiteSpace
+var = highlight H.Identifier (try ((:) <$> lower <*> many alphaNum)) <* whiteSpace
 
 constant :: Parser Expr
 constant = Constant <$> var
+           <?> "parameter starting in lowercase e.g. n or myParam"
 
 call :: Parser Expr
-call = Call <$> var <*> parens (sepBy expr comma)
-
-inc :: Parser Expr
-inc = Inc <$> highlight H.ReservedIdentifier (char 'S' *> parens expr)
+call = try (Call <$> var <*> parens (sepBy expr comma))
+       <?> "function call e.g. func(param1, param2)"
 
 patternParam :: Parser Pattern
-patternParam = convert <$> many (char 'S') <*> var
+patternParam = try (convert <$> some (char 'S') <*> var)
+               <?> "pattern for some successor of a free parameter e.g. SSn"
   where convert [] n = Binding n
         convert (_:rest) n = Succ (convert rest n)
 
-functionDefinition :: Parser Definition
-functionDefinition = convert <$> var <*>
-                     parens (sepBy (FreeParam <$> var
-                                    <|> try (LiteralParam <$> nat)
-                                    <|> try (PatternParam <$> patternParam)
-                                    <|> WildcardParam <$ char '_')
-                             comma)
-  <* symbolic '=' <*> expr <* whiteSpace
-  where convert name param ex = FuncDef name [(param, ex)]
+definition :: Parser Definition
+definition = do
+  name <- var
+  params <- optional $
+    parens (sepBy (PatternParam <$> patternParam
+                   <|> LiteralParam <$> nat
+                   <|> FreeParam <$> var
+                   <|> WildcardParam <$ (char '_' <?> "wildcard that matches everything but doesn't bind it: _"))
+           comma)
+  symbolic '='
+  body <- expr
+  return $ case params of
+            Just ps -> FuncDef name [(ps, body)]
+            Nothing -> ConstDef name body
 
-constantDefinition :: Parser Definition
-constantDefinition = ConstDef <$> var <* symbolic '=' <*> expr <* whiteSpace
 
 lineComment :: Parser ()
-lineComment = highlight H.Comment (string "--" *> skipMany (noneOf "\n")) *> whiteSpace
+lineComment = highlight H.Comment ((string "--" *> skipMany (noneOf "\n"))
+              <?> "comment spanning rest of line: -- comment") *> whiteSpace
 
 inlineComment :: Parser ()
-inlineComment = highlight H.Comment (string "{-" *> manyTill anyChar (try (string "-}"))) *> whiteSpace
+inlineComment = highlight H.Comment
+                ((string "{-" *> manyTill anyChar (try (string "-}")))
+                 <?> "inline comment: {- comment -}") *> whiteSpace
 
 comment :: Parser ()
-comment = some (lineComment <|> inlineComment) *> whiteSpace
+comment = many (lineComment <|> inlineComment) *> whiteSpace
 
 program :: Parser Program
-program = some (optional comment
-                *> (try functionDefinition <|> constantDefinition)
-                <* optional comment) <* eof
+program = some (comment *> definition <* comment) <* eof
 
 parse :: FilePath -> IO (Maybe Program)
 parse = parseFromFile program
