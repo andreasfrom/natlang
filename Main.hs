@@ -1,32 +1,33 @@
 module Main where
 
--- TODO: Convert errors to Either and check a whole lot more conditions
-
 import           AST
 import           Control.Monad.Reader
-import           Data.Maybe           (fromMaybe, listToMaybe, mapMaybe)
+import           Control.Monad.Trans.Except
+import           Data.Maybe                 (listToMaybe, mapMaybe)
 import           Data.Monoid
-import           Parser               (parse)
-import           System.Environment   (getArgs)
+import           Parser                     (parse)
+import           System.Environment         (getArgs)
 
-eval :: Expr -> Reader Environment Int
+type ExceptReader = ExceptT String (Reader Environment) Int
+
+eval :: Expr -> ExceptReader
 eval (Number x) = return x
 eval (Inc x) = liftM (1+) (eval x)
 eval (Constant n) = do
   env <- ask
   case lookupEnv n env of
     Just (ConstDef _ n') -> eval n'
-    _ -> error $ "No constant found called: " ++ n ++ " in environment: " ++ show env
+    _ -> throwE $ "Unknown parameter: " ++ n
 eval (Call f args) = do
   env <- ask
-  let args' = map ((`runReader` env) . eval) args
-      insts = case fromMaybe (error $ "unknown function: " ++ show f) (lookupEnv f env) of
-        (FuncDef _ is) -> is
-        _ -> error "no function"
-      (f', env') = fromMaybe (error $ "No suitable instance found: " ++ show insts
-                              ++ "\nFor args: " ++ show args')
-                   (listToMaybe $ mapMaybe (\i -> matchesInst i args' mempty) insts)
-  return $ runReader (eval f') (env' <> env)
+  args' <- mapExceptT (return . (`runReader` env)) (sequence (map eval args))
+  insts <- case (lookupEnv f env) of
+    Just (FuncDef _ is) -> return is
+    Just _ -> throwE $ "not a function"
+    Nothing -> throwE $ "unknown function: " ++ f
+  case listToMaybe $ mapMaybe (\i -> matchesInst i args' mempty) insts of
+     Just (f', env') -> ExceptT $ return $ runReader (runExceptT (eval f')) (env' <> env)
+     Nothing -> throwE $ "No suitable instance found: " ++ show insts ++ "\nFor args: " ++ show args'
 
 -- For the "f(a,a) implies a=a"-feature, there's a little bit too much implicit knowledge about the env being empty and only containing Numbers, but for now it works
 matchesInst :: Instance -> [Int] -> Environment -> Maybe (Expr, Environment)
@@ -48,9 +49,12 @@ matchesInst (PatternParam (Succ _) : _, _) (0:_) _ = Nothing
 matchesInst (PatternParam (Succ s) : pars, f) (a:as) env =
   matchesInst (PatternParam s : pars, f) (a-1:as) env
 matchesInst (WildcardParam : pars, f) (_:as) env = matchesInst (pars, f) as env
+matchesInst _ _ _ = Nothing
 
-run :: Program -> Int
-run defs = runReader prog mempty
+run :: Program -> Either String Int
+run defs = case runReader (runExceptT prog) mempty of
+  Right i -> Right i
+  Left err -> Left err
   where prog = do
           let env = foldl (flip insertEnv) mempty defs
           case lookupEnv "main" env of
