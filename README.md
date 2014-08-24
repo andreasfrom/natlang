@@ -1,10 +1,10 @@
 # natlang
-My experiments in implementing a programming language in Haskell, not a general purpose one, but one for exploring natural numbers.
+My experiments in implementing a little language in Haskell for exploring natural numbers (incl. 0).
 
-This is still under development, so the parser is quite rough, the error messages even more so, and the file to run is currently hardcoded.
+This is still under development, so the error messages are still quite rough and the implementation is trivial, leaving some to be desired for numerical performance (2^9 naively takes 16 seconds), but that is not the point anyway.
+The language should serve as a playground fo experimentation, providing the raw building blocks for understanding concepts such as addition and recursion.
 
 # Example
-The code below defines addition and multiplication of natural numbers through recursion and then defines fibonacci.
 
 ```haskell
 add(a, 0) = a
