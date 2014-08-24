@@ -6,7 +6,7 @@ import qualified Text.Parser.Token.Highlight as H
 import           Text.Trifecta
 
 expr :: Parser Expr
-expr = comment *> (call <|> constant <|> zero <|> incOrPos) <* comment
+expr = comment *> (callOrConstant <|> zero <|> incOrPos) <* comment
 
 nat :: Parser Int
 nat = highlight H.Number (length <$> many (char 'S') <* char '0'
@@ -21,13 +21,11 @@ incOrPos = char 'S' *> (Inc <$> parens expr <|> Number <$> ((+1) <$> nat <?> "0,
 var :: Parser Name
 var = highlight H.Identifier (try ((:) <$> lower <*> many alphaNum)) <* whiteSpace
 
-constant :: Parser Expr
-constant = Constant <$> var
-           <?> "parameter starting in lowercase e.g. n or myParam"
-
-call :: Parser Expr
-call = try (Call <$> var <*> parens (sepBy expr comma))
-       <?> "function call e.g. func(param1, param2)"
+callOrConstant :: Parser Expr
+callOrConstant = do
+  name <- var
+  (Call name <$> parens (sepBy expr comma) <?> "function call e.g. func(param1, param2)")
+    <|> ((return $ Constant name) <?> "parameter starting in lowercase e.g. n or myParam")
 
 patternParam :: Parser Pattern
 patternParam = try (convert <$> some (char 'S') <*> var)
