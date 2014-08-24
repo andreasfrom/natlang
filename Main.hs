@@ -3,6 +3,7 @@ module Main where
 import           AST
 import           Control.Monad.Reader
 import           Control.Monad.Trans.Except
+import           Data.List                  (intercalate)
 import           Data.Maybe                 (listToMaybe, mapMaybe)
 import           Data.Monoid
 import           Parser                     (parse)
@@ -13,25 +14,29 @@ type ExceptReader = ExceptT String (Reader Environment) Int
 eval :: Expr -> ExceptReader
 eval (Number x) = return x
 eval (Inc x) = liftM (1+) (eval x)
-eval (Constant n) = do
-  env <- ask
+eval (Constant n) = ask >>= \env ->
   case lookupEnv n env of
-    Just (ConstDef _ n') -> eval n'
-    _ -> throwE $ "Unknown parameter: " ++ n
+    Just (ConstDef _ n') -> withExceptT (++ "\n\tin constant " ++ show n) (eval n')
+    _ -> throwE $ "Unknown parameter " ++ show n
 eval (Call f args) = do
   env <- ask
-  args' <- mapExceptT (return . (`runReader` env)) (sequence (map eval args))
+  args' <- mapExceptT (return . (`runReader` env)) (sequence (map (context . eval) args))
   insts <- case (lookupEnv f env) of
     Just (FuncDef _ is) -> return is
-    Just _ -> throwE $ "not a function"
-    Nothing -> throwE $ "unknown function: " ++ f
+    Nothing -> throwE $ "unknown function " ++ show f
   case listToMaybe $ mapMaybe (\i -> matchesInst i args' mempty) insts of
-     Just (f', env') -> ExceptT $ return $ runReader (runExceptT (eval f')) (env' <> env)
-     Nothing -> throwE $ "No suitable instance found: " ++ show insts ++ "\nFor args: " ++ show args'
+     Just (f', env') -> mapExceptT (return . (`runReader` (env' <> env))) (eval f')
+     Nothing -> throwE $ "No suitable instance of " ++ show f
+                ++ " among these:\n\t"
+                ++ intercalate "\n\t" (map (show . fst) insts)
+                ++ "\n\tfound for arg(s):\n\t\t"
+                ++ intercalate "\n\t\t" (zipWith zipper args' args)
+       where zipper a a' = show a ++ " from \"" ++ show a' ++ "\""
+    where context = withExceptT (++ "\n\tin call to " ++ show f ++ " with " ++ show args)
 
 -- For the "f(a,a) implies a=a"-feature, there's a little bit too much implicit knowledge about the env being empty and only containing Numbers, but for now it works
 matchesInst :: Instance -> [Int] -> Environment -> Maybe (Expr, Environment)
-matchesInst (_,f) [] env = Just (f, env)
+matchesInst ([],f) [] env = Just (f, env)
 matchesInst (LiteralParam p : pars, f) (a:as) env
   | p == a = matchesInst (pars, f) as env
   | otherwise = Nothing
@@ -58,9 +63,10 @@ run defs = case runReader (runExceptT prog) mempty of
   where prog = do
           let env = foldl (flip insertEnv) mempty defs
           case lookupEnv "main" env of
-            Just (FuncDef _ [(_,m)]) -> local (env <>) (eval m)
-            Just (ConstDef _ m) -> local (env <>) (eval m)
+            Just (FuncDef _ [(_,m)]) -> local (env <>) (context (eval m))
+            Just (ConstDef _ m) -> local (env <>) (context (eval m))
             _ -> error "No unique main function found."
+        context = withExceptT (++ "\n\tin call to main")
 
 main :: IO ()
 main = do
@@ -68,5 +74,5 @@ main = do
   when (length args /= 1) (error "Supply the name of the file to run as the sole argument")
   ast <- parse (head args)
   case ast of
-    Just prog -> print $ run prog
+    Just prog -> either putStrLn print (run prog)
     Nothing -> return ()
