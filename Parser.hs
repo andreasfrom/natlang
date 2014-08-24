@@ -16,12 +16,7 @@ zero :: Parser Expr
 zero = highlight H.Number (char '0') *> pure (Number 0) <* whiteSpace
 
 incOrPos :: Parser Expr
-incOrPos = do
-  char 'S'
-  arg <- optional (parens expr)
-  case arg of
-   Just arg' -> return $ Inc arg'
-   Nothing -> Number <$> (1+) <$> nat
+incOrPos = char 'S' *> (Inc <$> parens expr <|> Number <$> ((+1) <$> nat <?> "0, S0, SS0..."))
 
 var :: Parser Name
 var = highlight H.Identifier (try ((:) <$> lower <*> many alphaNum)) <* whiteSpace
