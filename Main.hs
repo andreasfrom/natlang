@@ -4,7 +4,7 @@ import           AST
 import           Control.Monad.Reader
 import           Control.Monad.Trans.Except
 import           Data.List                  (intercalate)
-import           Data.Maybe                 (listToMaybe, mapMaybe)
+import           Data.Maybe                 (fromJust, listToMaybe, mapMaybe)
 import           Data.Monoid
 import           Parser                     (parse)
 import           System.Environment         (getArgs)
@@ -16,11 +16,11 @@ eval (Number x) = return x
 eval (Inc x) = liftM (1+) (eval x)
 eval (Constant n) = ask >>= \env ->
   case lookupEnv n env of
-    Just (ConstDef _ n') -> withExceptT (++ "\n\tin constant " ++ show n) (eval n')
-    _ -> throwE $ "Unknown parameter " ++ show n
+    Just (ConstDef _ n' form') -> withExceptT (++ "\n\nin constant " ++ form') (eval n')
+    _ -> throwE $ "Unknown parameter " ++ n ++ "\n"
 eval (Call f args) = do
   env <- ask
-  args' <- mapExceptT (return . (`runReader` env)) (sequence (map (context . eval) args))
+  args' <- mapExceptT (return . (`runReader` env)) (sequence (map eval args))
   insts <- case (lookupEnv f env) of
     Just (FuncDef _ is) -> return is
     Nothing -> throwE $ "unknown function " ++ show f
@@ -28,32 +28,36 @@ eval (Call f args) = do
      Just (f', env') -> mapExceptT (return . (`runReader` (env' <> env))) (eval f')
      Nothing -> throwE $ "No suitable instance of " ++ show f
                 ++ " among these:\n\t"
-                ++ intercalate "\n\t" (map (show . fst) insts)
-                ++ "\n\tfound for arg(s):\n\t\t"
-                ++ intercalate "\n\t\t" (zipWith zipper args' args)
-       where zipper a a' = show a ++ " from \"" ++ show a' ++ "\""
-    where context = withExceptT (++ "\n\tin call to " ++ show f ++ " with " ++ show args)
+                ++ intercalate "\n\t" (map frm insts) ++ "\n\n"
+                ++ "found for arg(s):\n\t"
+                ++ intercalate "\n\t" (map (\a -> showIntAsNat a ++ "  :  " ++ show a) args')
+       where frm (_,_,x) = x
+
+findEnvs :: [Name] -> Environment -> [Form]
+findEnvs = go []
+  where go forms [] _ = forms
+        go forms (n:ns) env = go (defForm (fromJust (lookupEnv n env)) ++ forms) ns env
 
 -- For the "f(a,a) implies a=a"-feature, there's a little bit too much implicit knowledge about the env being empty and only containing Numbers, but for now it works
 matchesInst :: Instance -> [Int] -> Environment -> Maybe (Expr, Environment)
-matchesInst ([],f) [] env = Just (f, env)
-matchesInst (LiteralParam p : pars, f) (a:as) env
-  | p == a = matchesInst (pars, f) as env
+matchesInst ([],f,_) [] env = Just (f, env)
+matchesInst (LiteralParam p : pars, f, form) (a:as) env
+  | p == a = matchesInst (pars, f, form) as env
   | otherwise = Nothing
-matchesInst (FreeParam p : pars, f) (a:as) env =
+matchesInst (FreeParam p : pars, f, form) (a:as) env =
   case lookupEnv p env of
-    Just (ConstDef _ (Number e)) -> if e == a then continue else Nothing
+    Just (ConstDef _ (Number e) _) -> if e == a then continue else Nothing
     Nothing -> continue
-  where continue = matchesInst (pars,f) as (insertEnv (ConstDef p (Number a)) env)
-matchesInst (PatternParam (Binding p) : pars, f) (a:as) env =
+  where continue = matchesInst (pars,f,form) as (insertEnv (ConstDef p (Number a) form) env)
+matchesInst (PatternParam (Binding p) : pars, f, form) (a:as) env =
   case lookupEnv p env of
-    Just (ConstDef _ (Number e)) -> if e == a then continue else Nothing
+    Just (ConstDef _ (Number e) _) -> if e == a then continue else Nothing
     Nothing -> continue
-  where continue = matchesInst (pars,f) as (insertEnv (ConstDef p (Number a)) env)
-matchesInst (PatternParam (Succ _) : _, _) (0:_) _ = Nothing
-matchesInst (PatternParam (Succ s) : pars, f) (a:as) env =
-  matchesInst (PatternParam s : pars, f) (a-1:as) env
-matchesInst (WildcardParam : pars, f) (_:as) env = matchesInst (pars, f) as env
+  where continue = matchesInst (pars,f,form) as (insertEnv (ConstDef p (Number a) form) env)
+matchesInst (PatternParam (Succ _) : _, _, _) (0:_) _ = Nothing
+matchesInst (PatternParam (Succ s) : pars, f, form) (a:as) env =
+  matchesInst (PatternParam s : pars, f, form) (a-1:as) env
+matchesInst (WildcardParam : pars, f, form) (_:as) env = matchesInst (pars, f, form) as env
 matchesInst _ _ _ = Nothing
 
 run :: Program -> Either String Int
@@ -63,10 +67,9 @@ run defs = case runReader (runExceptT prog) mempty of
   where prog = do
           let env = foldl (flip insertEnv) mempty defs
           case lookupEnv "main" env of
-            Just (FuncDef _ [(_,m)]) -> local (env <>) (context (eval m))
-            Just (ConstDef _ m) -> local (env <>) (context (eval m))
+            Just (FuncDef _ [(_,m,_)]) -> local (env <>) (eval m)
+            Just (ConstDef _ m _) -> local (env <>) (eval m)
             _ -> error "No unique main function found."
-        context = withExceptT (++ "\n\tin call to main")
 
 main :: IO ()
 main = do

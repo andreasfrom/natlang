@@ -2,6 +2,7 @@ module Parser (parse) where
 
 import           AST
 import           Control.Applicative
+import qualified Data.ByteString.Char8       as BS
 import qualified Text.Parser.Token.Highlight as H
 import           Text.Trifecta
 
@@ -34,7 +35,7 @@ patternParam = try (convert <$> some (char 'S') <*> var)
         convert (_:rest) n = Succ (convert rest n)
 
 definition :: Parser Definition
-definition = do
+definition = slicedWith define $ do
   name <- var
   params <- optional $
     parens (sepBy (PatternParam <$> patternParam
@@ -44,10 +45,11 @@ definition = do
            comma)
   symbolic '='
   body <- expr
-  return $ case params of
-            Just ps -> FuncDef name [(ps, body)]
-            Nothing -> ConstDef name body
-
+  return $ (name, params, body)
+  where define (name, Nothing, body) form =
+          ConstDef name body (BS.unpack (trimN form))
+        define (name, Just params, body) form =
+          FuncDef name [(params, body, BS.unpack (trimN form))]
 
 lineComment :: Parser ()
 lineComment = highlight H.Comment ((string "--" *> skipMany (noneOf "\n"))
@@ -66,3 +68,6 @@ program = some (comment *> definition <* comment) <* eof
 
 parse :: FilePath -> IO (Maybe Program)
 parse = parseFromFile program
+
+trimN :: BS.ByteString -> BS.ByteString
+trimN t = if BS.last t == '\n' then trimN (BS.init t) else t
